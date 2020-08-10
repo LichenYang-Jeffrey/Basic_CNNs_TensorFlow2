@@ -1,8 +1,9 @@
 import tensorflow as tf
 import pathlib
 from configuration import IMAGE_HEIGHT, IMAGE_WIDTH, CHANNELS, \
-    BATCH_SIZE, train_tfrecord, valid_tfrecord, test_tfrecord
+    EPOCHS, BATCH_SIZE, train_tfrecord, valid_tfrecord, test_tfrecord
 from parse_tfrecord import get_parsed_dataset
+import imagenet_preprocessing
 
 
 def load_and_preprocess_image(image_raw, data_augmentation=False):
@@ -44,17 +45,54 @@ def get_the_length_of_dataset(dataset):
 
 
 def generate_datasets():
-    train_dataset = get_parsed_dataset(tfrecord_name=train_tfrecord)
-    valid_dataset = get_parsed_dataset(tfrecord_name=valid_tfrecord)
-    test_dataset = get_parsed_dataset(tfrecord_name=test_tfrecord)
+    #train_dataset = get_parsed_dataset(tfrecord_name=train_tfrecord)
+    #valid_dataset = get_parsed_dataset(tfrecord_name=valid_tfrecord)
+    #test_dataset = get_parsed_dataset(tfrecord_name=test_tfrecord)
 
-    train_count = get_the_length_of_dataset(train_dataset)
-    valid_count = get_the_length_of_dataset(valid_dataset)
-    test_count = get_the_length_of_dataset(test_dataset)
+    train_dataset = imagenet_preprocessing.input_fn(
+        is_training=True,
+        input_files=tf.io.gfile.glob(train_tfrecord),
+        batch_size=BATCH_SIZE,
+        num_epochs=EPOCHS,
+        parse_record_fn=imagenet_preprocessing.parse_record,
+        datasets_num_private_threads=5,  # critical parameter, tune it
+        drop_remainder=True,
+        tf_data_experimental_slack=False,
+        training_dataset_cache=True,
+        output_height=IMAGE_HEIGHT,
+        output_width=IMAGE_WIDTH)
+    
+    valid_dataset = imagenet_preprocessing.input_fn(\
+        is_training=False,
+        input_files=tf.io.gfile.glob(valid_tfrecord),
+        batch_size=BATCH_SIZE,
+        num_epochs=EPOCHS,
+        parse_record_fn=imagenet_preprocessing.parse_record,
+        drop_remainder=True,
+        output_height=IMAGE_HEIGHT,
+        output_width=IMAGE_WIDTH)
+    
+    test_dataset = imagenet_preprocessing.input_fn(\
+        is_training=False,
+        input_files=tf.io.gfile.glob(valid_tfrecord),
+        batch_size=BATCH_SIZE,
+        num_epochs=EPOCHS,
+        parse_record_fn=imagenet_preprocessing.parse_record,
+        drop_remainder=True,
+        output_height=IMAGE_HEIGHT,
+        output_width=IMAGE_WIDTH)
+    
+    train_count = 1281167
+    valid_count = 50000
+    test_count = 50000
+
+    #train_count = get_the_length_of_dataset(train_dataset)
+    #valid_count = get_the_length_of_dataset(valid_dataset)
+    #test_count = get_the_length_of_dataset(test_dataset)
 
     # read the dataset in the form of batch
-    train_dataset = train_dataset.batch(batch_size=BATCH_SIZE)
-    valid_dataset = valid_dataset.batch(batch_size=BATCH_SIZE)
-    test_dataset = test_dataset.batch(batch_size=BATCH_SIZE)
+    #train_dataset = train_dataset.batch(batch_size=BATCH_SIZE)
+    #valid_dataset = valid_dataset.batch(batch_size=BATCH_SIZE)
+    #test_dataset = test_dataset.batch(batch_size=BATCH_SIZE)
 
     return train_dataset, valid_dataset, test_dataset, train_count, valid_count, test_count

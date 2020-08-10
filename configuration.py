@@ -1,7 +1,7 @@
 # some training parameters
-EPOCHS = 50
-BATCH_SIZE = 8
-NUM_CLASSES = 5
+EPOCHS = 90
+BATCH_SIZE = 128
+NUM_CLASSES = 1000
 IMAGE_HEIGHT = 224
 IMAGE_WIDTH = 224
 CHANNELS = 3
@@ -14,9 +14,9 @@ dataset_dir = "dataset/"
 train_dir = dataset_dir + "train"
 valid_dir = dataset_dir + "valid"
 test_dir = dataset_dir + "test"
-train_tfrecord = dataset_dir + "train.tfrecord"
-valid_tfrecord = dataset_dir + "valid.tfrecord"
-test_tfrecord = dataset_dir + "test.tfrecord"
+train_tfrecord = 'hdfs://haruna/home/byte_search_nlp_cr/user/zhaoshenjian.01/visual/data/imagenet_origin/train_tfrecord/*.tfrecord'#dataset_dir + "train.tfrecord"
+valid_tfrecord = 'hdfs://haruna/home/byte_search_nlp_lq/user/zhaoshenjian.01/visual/data/tfrecord/imagenet_newlabel_val_20200726/*.tfrecord'#dataset_dir + "valid.tfrecord"
+test_tfrecord = 'hdfs://haruna/home/byte_search_nlp_lq/user/zhaoshenjian.01/visual/data/tfrecord/imagenet_newlabel_val_20200726/*.tfrecord'#dataset_dir + "test.tfrecord"
 # VALID_SET_RATIO = 1 - TRAIN_SET_RATIO - TEST_SET_RATIO
 TRAIN_SET_RATIO = 0.6
 TEST_SET_RATIO = 0.2
@@ -43,5 +43,5 @@ TEST_SET_RATIO = 0.2
 # b5 = (1.6, 2.2, 456, 0.4)
 # b6 = (1.8, 2.6, 528, 0.5)
 # b7 = (2.0, 3.1, 600, 0.5)
-model_index = 35
+model_index = 4
 
