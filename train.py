@@ -8,6 +8,12 @@ from models import mobilenet_v1, mobilenet_v2, mobilenet_v3_large, mobilenet_v3_
     efficientnet, resnext, inception_v4, inception_resnet_v1, inception_resnet_v2, \
     se_resnet, squeezenet, densenet, shufflenet_v2, resnet, se_resnext
 from absl import logging
+from optimization import optimizers_v2
+from optimization import loss_scale_manager
+from optimization.compression import Compression
+from optimization.distribution_utils import broadcast_variables
+
+USE_FP16 = False
 
 def get_model():
     if model_index == 0:
@@ -88,7 +94,8 @@ def get_model():
 
 def print_model_summary(network):
     network.build(input_shape=(None, IMAGE_HEIGHT, IMAGE_WIDTH, CHANNELS))
-    network.summary()
+    if hvd.local_rank() == 0:
+        network.summary()
 
 
 def process_features(features, data_augmentation):
@@ -122,8 +129,17 @@ if __name__ == '__main__':
         hvd.size(), hvd.local_size()))
     logging.info("Global rank: {}, local rank: {}".format(
         hvd.rank(), hvd.local_rank()))
+    
+    # use fp16
+    dtype = tf.float32
+    if USE_FP16:
+        tf.keras.mixed_precision.experimental.set_policy('infer')
+        dtype = tf.float16
+    
+    file_writer = tf.summary.create_file_writer('./log')
+    file_writer.set_as_default()
 
-    train_dataset, valid_dataset, test_dataset, train_count, valid_count, test_count = generate_datasets()
+    train_dataset, valid_dataset, test_dataset, train_count, valid_count, test_count = generate_datasets(dtype)
 
     # create model
     model = get_model()
@@ -132,6 +148,18 @@ if __name__ == '__main__':
     # define loss and optimizer
     loss_object = tf.keras.losses.SparseCategoricalCrossentropy()
     optimizer = tf.keras.optimizers.RMSprop()
+
+    if USE_FP16:
+        loss_scale = 128
+        if isinstance(loss_scale, (int, float)):
+            loss_scaler = tf.cast(loss_scale, tf.float32)
+        else:
+            loss_scaler = loss_scale_manager.ExponentialUpdateLossScaleManager(
+                init_loss_scale=10000.,
+                incr_every_n_steps=500)
+        optimizer = optimizers_v2.MixedPrecisionOptimizerWrapper(
+            optimizer, loss_scale=loss_scaler, clip_norm=None)
+
 
     train_loss = tf.keras.metrics.Mean(name='train_loss')
     train_accuracy = tf.keras.metrics.SparseCategoricalAccuracy(name='train_accuracy')
@@ -146,15 +174,27 @@ if __name__ == '__main__':
         with tf.GradientTape() as tape:
             predictions = model(image_batch, training=True)
             loss = loss_object(y_true=label_batch, y_pred=predictions)
-            
-        tape = hvd.DistributedGradientTape(tape)
+        
+        if USE_FP16:
+            loss = optimizer.get_scaled_loss(loss)
+            compression = Compression.fp16
+        else:
+            compression = Compression.none
 
-        gradients = tape.gradient(loss, model.trainable_variables)
-        optimizer.apply_gradients(grads_and_vars=zip(gradients, model.trainable_variables))
+        tape = hvd.DistributedGradientTape(tape, compression=compression,
+                                       sparse_as_dense=True)
+
+        tvars = model.trainable_variables
+        gradients = tape.gradient(loss, tvars)
+        if USE_FP16:
+            gradients = optimizer.get_unscaled_gradients(gradients)
+
+        optimizer.apply_gradients(list(zip(gradients, tvars)))
 
         if first_batch:
-            hvd.broadcast_variables(model.variables, root_rank=0)
-            hvd.broadcast_variables(optimizer.variables(), root_rank=0)
+            #hvd.broadcast_variables(model.variables, root_rank=0)
+            #hvd.broadcast_variables(optimizer.variables(), root_rank=0)
+            broadcast_variables(tvars, optimizer, hvd)
 
         train_loss.update_state(values=loss)
         train_accuracy.update_state(y_true=label_batch, y_pred=predictions)
@@ -176,29 +216,41 @@ if __name__ == '__main__':
             #images, labels = process_features(features, data_augmentation=True)
             images, labels = features
             train_step(images, labels, step == 0)
-            print("Epoch: {}/{}, step: {}/{}, loss: {:.5f}, accuracy: {:.5f}".format(epoch,
-                                                                                    EPOCHS,
-                                                                                    step,
-                                                                                    math.ceil(train_count / BATCH_SIZE),
-                                                                                    train_loss.result().numpy(),
-                                                                                    train_accuracy.result().numpy()))
+            if hvd.local_rank() == 0:
+                print("Epoch: {}/{}, step: {}/{}, loss: {:.5f}, accuracy: {:.5f}".format(epoch,
+                                                                                        EPOCHS,
+                                                                                        step,
+                                                                                        math.ceil(train_count / BATCH_SIZE),
+                                                                                        train_loss.result().numpy(),
+                                                                                        train_accuracy.result().numpy()))
 
         for features in valid_dataset:
             #valid_images, valid_labels = process_features(features, data_augmentation=False)
             valid_images, valid_labels, _, _ = features
             valid_step(valid_images, valid_labels)
-
-        print("Epoch: {}/{}, train loss: {:.5f}, train accuracy: {:.5f}, "
-            "valid loss: {:.5f}, valid accuracy: {:.5f}".format(epoch,
-                                                                EPOCHS,
-                                                                train_loss.result().numpy(),
-                                                                train_accuracy.result().numpy(),
-                                                                valid_loss.result().numpy(),
-                                                                valid_accuracy.result().numpy()))
+        
+        if hvd.local_rank() == 0:
+            print("Epoch: {}/{}, train loss: {:.5f}, train accuracy: {:.5f}, "
+                "valid loss: {:.5f}, valid accuracy: {:.5f}".format(epoch,
+                                                                    EPOCHS,
+                                                                    train_loss.result().numpy(),
+                                                                    train_accuracy.result().numpy(),
+                                                                    valid_loss.result().numpy(),
+                                                                    valid_accuracy.result().numpy()))
         train_loss.reset_states()
         train_accuracy.reset_states()
         valid_loss.reset_states()
         valid_accuracy.reset_states()
+
+        if hvd.local_rank() == 0:
+            if USE_FP16:
+                tf.summary.scalar('optimization/loss_scale', optimizer.loss_scale, step=optimizer.iterations)
+            tf.summary.scalar("train/accuracy", train_accuracy.result().numpy(), step=optimizer.iterations)
+            tf.summary.scalar("train/loss", train_loss.result().numpy(), step=optimizer.iterations)
+            tf.summary.scalar("eval/accuracy", valid_accuracy.result().numpy(), step=optimizer.iterations)
+            tf.summary.scalar("eval/loss", valid_loss.result().numpy(), step=optimizer.iterations)
+
+
 
         if epoch % save_every_n_epoch == 0:
             #model.save_weights(filepath=save_model_dir+"epoch-{}".format(epoch), save_format='tf')

@@ -44,7 +44,7 @@ def get_the_length_of_dataset(dataset):
     return count
 
 
-def generate_datasets():
+def generate_datasets(dtype):
     #train_dataset = get_parsed_dataset(tfrecord_name=train_tfrecord)
     #valid_dataset = get_parsed_dataset(tfrecord_name=valid_tfrecord)
     #test_dataset = get_parsed_dataset(tfrecord_name=test_tfrecord)
@@ -59,6 +59,7 @@ def generate_datasets():
         drop_remainder=True,
         tf_data_experimental_slack=False,
         training_dataset_cache=True,
+        dtype=dtype,
         output_height=IMAGE_HEIGHT,
         output_width=IMAGE_WIDTH)
     
@@ -69,6 +70,7 @@ def generate_datasets():
         num_epochs=EPOCHS,
         parse_record_fn=imagenet_preprocessing.parse_record,
         drop_remainder=True,
+        dtype=dtype,
         output_height=IMAGE_HEIGHT,
         output_width=IMAGE_WIDTH)
     
@@ -79,6 +81,7 @@ def generate_datasets():
         num_epochs=EPOCHS,
         parse_record_fn=imagenet_preprocessing.parse_record,
         drop_remainder=True,
+        dtype=dtype,
         output_height=IMAGE_HEIGHT,
         output_width=IMAGE_WIDTH)
     
