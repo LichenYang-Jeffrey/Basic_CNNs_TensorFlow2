@@ -7,9 +7,6 @@ import math
 from models import mobilenet_v1, mobilenet_v2, mobilenet_v3_large, mobilenet_v3_small, \
     efficientnet, resnext, inception_v4, inception_resnet_v1, inception_resnet_v2, \
     se_resnet, squeezenet, densenet, shufflenet_v2, resnet, se_resnext
-import optimization.distribution_utils as distribution_utils
-from optimization.distribution_utils import broadcast_variables
-from optimization.compression import Compression
 from absl import logging
 
 def get_model():
@@ -126,24 +123,8 @@ if __name__ == '__main__':
     logging.info("Global rank: {}, local rank: {}".format(
         hvd.rank(), hvd.local_rank()))
 
-    #strategy = tf.distribute.MirroredStrategy()
-    # get the dataset
-    #GLOBAL_BATCH_SIZE = BATCH_SIZE * strategy.num_replicas_in_sync
-    
-    #num_workers = distribution_utils.configure_cluster(None, -1)
-    #num_gpus = distribution_utils.get_num_gpus(8)
-    #strategy = distribution_utils.get_distribution_strategy(
-    #    distribution_strategy='multi_worker_mirrored',
-    #    num_gpus=8,
-    #    num_workers=32,
-    #    all_reduce_alg="nccl")
-
     train_dataset, valid_dataset, test_dataset, train_count, valid_count, test_count = generate_datasets()
-    #train_dataset = strategy.experimental_distribute_dataset(train_dataset)
-    #valid_dataset = strategy.experimental_distribute_dataset(valid_dataset)
-    #test_dataset = strategy.experimental_distribute_dataset(test_dataset)
 
-    #with strategy.scope():
     # create model
     model = get_model()
     print_model_summary(network=model)
@@ -160,16 +141,11 @@ if __name__ == '__main__':
 
     checkpoint = tf.train.Checkpoint(model=model, optimizer=optimizer)
 
-
-    #def compute_loss(logits, labels):
-    #    per_example_loss = loss_object(y_true=labels, y_pred=logits)
-    #    return tf.nn.compute_average_loss(per_example_loss, global_batch_size=GLOBAL_BATCH_SIZE)
-
     @tf.function
     def train_step(image_batch, label_batch, first_batch):
         with tf.GradientTape() as tape:
             predictions = model(image_batch, training=True)
-            loss = loss_object(y_true=label_batch, y_pred=predictions)#compute_loss(logits=predictions, labels=label_batch)#
+            loss = loss_object(y_true=label_batch, y_pred=predictions)
             
         tape = hvd.DistributedGradientTape(tape)
 
@@ -182,17 +158,12 @@ if __name__ == '__main__':
 
         train_loss.update_state(values=loss)
         train_accuracy.update_state(y_true=label_batch, y_pred=predictions)
-        
-    #@tf.function
-    #def distributed_train_step(dist_inputs):
-    #    per_replica_losses = strategy.run(train_step, args=(dist_inputs,))
-    #    return strategy.reduce(tf.distribute.ReduceOp.SUM, per_replica_losses,
-    #                            axis=None)
+
 
     @tf.function
     def valid_step(image_batch, label_batch):
         predictions = model(image_batch, training=False)
-        v_loss = loss_object(label_batch, predictions)#compute_loss(logits=predictions, labels=label_batch)#
+        v_loss = loss_object(label_batch, predictions)
 
         valid_loss.update_state(values=v_loss)
         valid_accuracy.update_state(y_true=label_batch, y_pred=predictions)

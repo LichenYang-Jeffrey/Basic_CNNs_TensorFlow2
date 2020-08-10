@@ -1,10 +1,3 @@
-#!/usr/bin/env python
-# -*- coding: utf-8 -*-
-#
-#   Authors: Shenjian Zhao
-#   Date: 2020/07/07 10:10 PM
-#
-# pylint: disable=all
 """Provides utilities to preprocess images.
 Training images are sampled using the provided bounding boxes, and subsequently
 cropped to the sampled bounding box. Images are additionally flipped randomly,
