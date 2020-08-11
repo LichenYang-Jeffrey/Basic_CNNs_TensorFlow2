@@ -44,7 +44,7 @@ def get_the_length_of_dataset(dataset):
     return count
 
 
-def generate_datasets(dtype):
+def generate_datasets(dtype, input_context):
     #train_dataset = get_parsed_dataset(tfrecord_name=train_tfrecord)
     #valid_dataset = get_parsed_dataset(tfrecord_name=valid_tfrecord)
     #test_dataset = get_parsed_dataset(tfrecord_name=test_tfrecord)
@@ -60,6 +60,7 @@ def generate_datasets(dtype):
         tf_data_experimental_slack=False,
         training_dataset_cache=True,
         dtype=dtype,
+        input_context=input_context,
         output_height=IMAGE_HEIGHT,
         output_width=IMAGE_WIDTH)
     

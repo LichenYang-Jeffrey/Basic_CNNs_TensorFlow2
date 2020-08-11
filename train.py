@@ -12,6 +12,7 @@ from optimization import optimizers_v2
 from optimization import loss_scale_manager
 from optimization.compression import Compression
 from optimization.distribution_utils import broadcast_variables
+from collections import namedtuple
 
 USE_FP16 = False
 
@@ -94,8 +95,7 @@ def get_model():
 
 def print_model_summary(network):
     network.build(input_shape=(None, IMAGE_HEIGHT, IMAGE_WIDTH, CHANNELS))
-    if hvd.local_rank() == 0:
-        network.summary()
+    network.summary()
 
 
 def process_features(features, data_augmentation):
@@ -139,11 +139,14 @@ if __name__ == '__main__':
     file_writer = tf.summary.create_file_writer('./log')
     file_writer.set_as_default()
 
-    train_dataset, valid_dataset, test_dataset, train_count, valid_count, test_count = generate_datasets(dtype)
+    input_context = namedtuple("InputContext", "num_input_pipelines input_pipeline_id")
+    train_dataset, valid_dataset, test_dataset, train_count, valid_count, test_count = generate_datasets(dtype, 
+                                                                                            input_context(hvd.size(), hvd.rank()))
 
     # create model
     model = get_model()
-    print_model_summary(network=model)
+    if hvd.local_rank() == 0:
+        print_model_summary(network=model)
 
     # define loss and optimizer
     loss_object = tf.keras.losses.SparseCategoricalCrossentropy()
@@ -175,14 +178,15 @@ if __name__ == '__main__':
             predictions = model(image_batch, training=True)
             loss = loss_object(y_true=label_batch, y_pred=predictions)
         
-        if USE_FP16:
-            loss = optimizer.get_scaled_loss(loss)
-            compression = Compression.fp16
-        else:
-            compression = Compression.none
-
-        tape = hvd.DistributedGradientTape(tape, compression=compression,
-                                       sparse_as_dense=True)
+        if hvd:
+            if USE_FP16:
+                loss = optimizer.get_scaled_loss(loss)
+                compression = Compression.fp16
+            else:
+                compression = Compression.none
+        
+            tape = hvd.DistributedGradientTape(tape, compression=compression,
+                                            sparse_as_dense=True)
 
         tvars = model.trainable_variables
         gradients = tape.gradient(loss, tvars)
